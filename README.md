@@ -1,7 +1,7 @@
     ForthVM.h
     R.A.Lincoln   September 2026
 
-    Proof of concept Forth based scrPCting engine
+    Proof of concept Forth based scripting engine
     To be accessible via terminal connectivity on the DCC-Ex AP network
     Target to provide interactive capability similar to EXRAIL
 
