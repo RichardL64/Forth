@@ -29,26 +29,9 @@
 
 
 
-// Register dump
-//
-void registers() {
-    std::cout << "  PC    I     A     SP    T    RSP    L\n";
-    std::cout << std::hex
-              << " " << std::setw(4) << std::setfill('0') << ForthVM.PC
-              << "  " << std::setw(4) << std::setfill('0') << ForthVM.I.word
-              << "  " << std::setw(4) << std::setfill('0') << ForthVM.A
-              << "  " << std::setw(4) << std::setfill('0') << ForthVM.SP
-              << "  " << std::setw(4) << std::setfill('0') << ForthVM.T
-              << "  " << std::setw(4) << std::setfill('0') << ForthVM.RSP
-              << "  " << std::setw(4) << std::setfill('0') << ForthVM.L
-              << std::dec << "\n";
-}
-
-
-// Replace or map these with your actual opcode enumeration names from ForthVM.h
+// Static table mapping odd opcodes (1, 3, 5, 7...) directly by index: (op - 1) / 2
 //
 std::string get_opcode_name(uint8_t op) {
-    // Static table mapping odd opcodes (1, 3, 5, 7...) directly by index: (op - 1) / 2
     static const char* const opcode_names[] = {
         "nop",		// 0x01
         "next",		// 0x03
@@ -63,7 +46,7 @@ std::string get_opcode_name(uint8_t op) {
         "rp@",
 
         "lit8",		// 0x15	Literal 8 bit
-        "lit ",		//			Literal
+        "lit ",		//			Literal 16 bit
         "lits",		//			Literal string
 
         "br  ",		// 			branch relative
@@ -89,12 +72,12 @@ std::string get_opcode_name(uint8_t op) {
         "a@  ",
         "a!  ",
         "@a  ",
+        "@a+ ",
         "!a  ",
         "move",
         "scmp",		//			String compare
 
         "num ",
-        "find",
         "scnw",		//			Scan while
         "scnu",		//			Scan until
 
@@ -104,7 +87,6 @@ std::string get_opcode_name(uint8_t op) {
         "uh. ",		//			Unsigned hex	ffff
 
         "emit",
-        "type",
         "?key",
         "key ",
         "acpt",		//			Accept
@@ -249,7 +231,7 @@ int main() {
     dump_memory(ForthVM.memory, 0x0000, 0x0014);
     dump_memory(ForthVM.memory, 0x0800, 0x0500);
 
-		disassemble(ForthVM.memory, 0x08a8, 50);
+		disassemble(ForthVM.memory, 0x0ab8, 50);
 
 		int i = 1;
 		while(i<10) {

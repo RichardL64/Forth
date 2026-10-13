@@ -102,6 +102,7 @@
 //	Flow control
 //
 #define BEGIN(label) \
+		_align(); \
 		size_t label = cursor;
 
 #define AGAIN(label) \
@@ -322,8 +323,18 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     createx(udot, "u.");    	opc(udot, next);
     createx(hdot, "h.");    	opc(hdot, next);
     createx(uhdot, "uh.");    opc(uhdot, next);
+
     create(emit);         		opc(emit, next);
-    create(type);         		opc(type, next);
+
+		create(type);																																// : type ( addr -- )
+			opc(astore);																															//		a!									( -- )
+			BEGIN(type1)																															//		begin
+				opc(fetchaadd); lit16(0xff); opc(and, dup);															//			@a+ 0xff and dup	( -- char char )
+			WHILE(type2)																															//		while								( -- char )
+				opc(emit);																															//			emit 							( -- )
+			REPEAT(type1, type2)																											//		repeat
+			opc(drop, next);																													//		drop, next					( -- )
+
     createx(qkey, "?key");		opc(qkey, next);
     create(key);           		opc(key, next);
     create(accept);       		opc(accept, next);
@@ -363,8 +374,10 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		create(space);						lit8(32); opc(emit, next);											//: space 32 emit ;
 
 
+
 		//	Colon code words - end with endc macro
 		//
+
 		createc(depth);																														// : depth s0 sp@ - 2/ 1 - ;
 			call(szero, spfetch, sub, twodiv); lit8(1); call(sub);
 		endc;
@@ -394,6 +407,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		endc;
 
 		createcx(body, "body>");																								// link field -> parameter field
+			call(name);
 			lits("\0"); opc(scanu, add);																					// ( -- next string-end )
 			call(oneadd, align, nip);																							// link field -> xt
 		endc;
@@ -401,26 +415,20 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 
 		//	Find
 		//
-		createc(find2);																													// : find ( string -- xt flag )
-			call(context, fetch);																									//		( -- str link )
-			BEGIN(find1);
-				call(dup);
-			WHILE(find2);
-				call(twodup, name);																									//		( -- str link str str2 )
-				opc(scmp) ZIF(find3);																								//		( -- str link )
-					call(nip); opc(exit);																							//		( -- link ) --> exit is leaving this and t2?
-				ENDIF(find3);
+		createc(find);																													// : find ( string -- xt | 0 )
+			call(context, fetch);																									//		context @							( -- str link )
+			BEGIN(find1);																													//		begin
+				opc(dup);																														//			dup									( -- str link flag )
+			WHILE(find2);																													//		while
+				call(twodup, name);																									//			2dup name>					( -- str link str str2 )
+				opc(scmp) ZIF(find3);																								//			scmp 0if						( -- str link )
+					call(nip, body); opc(exit);																				//				nip body> exit		( -- xt )
+				ENDIF(find3)																												//			endif
+				call(fetch);																												//  		@										( -- str link )
+			REPEAT(find1, find2);																									//		repeat
+			call(nip);																														//		nip
+		endc;																																		//	;
 
-				call(fetch)																													//		( -- str newlink )
-			REPEAT(find1, find2);
-			call(nip);
-		endc;
-
-		//	Find the passed string in the current dictionary
-		//
-    createc(find);																													// : find ( string -- xt flag )
-    	lit8(1); call(context, fetch); opc(find);															//		1 context @ (find) ;
-		endc;
 
 		//	Word
 		//
@@ -451,7 +459,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		createcx(qstack, "?stack");																							//	: ?stack
 			call(szero, spfetch, sub);																						//		s0 sp@ -
 			lit8(2); call(less); IF(qstack1);																			//		2 < if
-				lits("Stack underflow "); call(type, abort);												// 			-->
+				lits("Stack empty "); call(type, abort);														// 			-->
 			ENDIF(qstack1);																												//		endif
 
 		endc;
@@ -461,7 +469,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		//
     createc(interpret);																											// : interpret
     	BEGIN(interpret1);																										//		begin
-				call(word, here, find);																							// 			word here find			( -- xt flag )
+				call(word, here, find, dup);																				// 			word here find			( -- xt xt )
 
     		IF(interpret2);																											//			if
 //    			call(state), call(fetch), brz(FM4),																//				state @ < (comparing with words header) if
@@ -491,13 +499,9 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		//	Main quit loop
 		//	Input/interpret repeat
 		//
-		createc(ok);
-			lits("Ok.\n"); call(type);
-		endc;
-
     createc(quit);											  						// : quit begin ok query interpret again ;
     	BEGIN(quit1);
-				call(ok, query, interpret);
+				lits("Ok.\n"); call(type, query, interpret);
     	AGAIN(quit1);
 		endc;
 		set_w(ABORT, word_quit);													// Patch abort forward call to quit
@@ -537,7 +541,8 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		createc(t2);
 			lits("t2\n"); call(type);
 
-			call(query, tib, find2, dot, space, dot, cr);
+			call(query, tib, find, cr, dots);
+			lit8(0); call(tib, store);
 		endc;
 
 		createc(t3);

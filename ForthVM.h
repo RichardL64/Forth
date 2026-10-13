@@ -2,7 +2,7 @@
     ForthVM.h
     R.A.Lincoln   September 2026
 
-    Proof of concept Forth based scrPCting engine
+    Proof of concept Forth based scripting engine
     To be accessible via terminal connectivity on the DCC-Ex AP network
     Target to provide interactive capability similar to EXRAIL
 
@@ -421,6 +421,12 @@ public:
     T = fetch(A);
   }
 
+  PRIMITIVE(fetchaadd) {        // ( -- n1 )				// fetch value at address A, inc A
+    push(T);
+    T = fetch(A);
+    A++;
+  }
+
   PRIMITIVE(storea) {           // ( n1 -- )				// store value at address A
     store(A, T);
     T = pop();
@@ -443,7 +449,12 @@ public:
 	}
 
 	PRIMITIVE(scmp) {							// ( string string -- flag )	// Compare null terminated strings, 0 = same
-    T = std::strcmp((const char*)&memory[T], (const char*)&memory[pop()]);
+		const char* str1 = (const char*)&memory[pop()];
+		const char* str2 = (const char*)&memory[T];
+
+    T = std::strcmp(str1, str2);
+
+//    std::cout << "scmp " << str1 << " = " << str2 << " -> " << T << " \n";
 	}
 
 	//
@@ -487,41 +498,6 @@ public:
 
     T = success ? -1 : 0;         								// Flag on TOS
     push(success ? (uint16_t)val : 0); 						// Value on NOS
-  }
-
-
-	//	Walk the dictionary to find the name
-	//	: find 1 current @ (find) ;
-	//
-  PRIMITIVE(find) {           													// ( name offset dict -- 0 false | n1 true )
-		uint16_t curr_entry = T;												// Dictionary to search
-    uint16_t name_offset = pop();										// name offset after the link
-    uint16_t name_addr = fetch(SP); 						// Pointer to the null-terminated search string
-
-    uint16_t found_xt = 0;
-
-		// std::cout << "0Find >" << (char*)&memory[name_addr] << "< " << curr_entry << "\n";
-
-    while (curr_entry != 0) {
-        uint16_t entry_name_addr = curr_entry +2 +name_offset;		// word name is after the link field & flags
-
-				 //std::cout << std::hex << "1Find >" << (char*)&memory[name_addr] << "< = >" << (char*)&memory[entry_name_addr] << "< \n";
-
-				if (std::strcmp((char*)&memory[name_addr], (char*)&memory[entry_name_addr]) == 0) {
-            uint16_t name_len = std::strlen((char*)&memory[entry_name_addr]);
-            found_xt = entry_name_addr + name_len +1;			// + null
-            if (found_xt % 2 != 0) found_xt++;						// align
-
-    				store(SP, found_xt);									// nos = xt
-    				T = -1;																		// tos = true
-            return;																				// -->
-        }
-
-        curr_entry = fetch(curr_entry);								// next word
-    }
-
-		store(SP, 0);																	// nos = 0
-    T = 0;																						// tos = false
   }
 
 
@@ -635,16 +611,17 @@ public:
 
   }
 
-  PRIMITIVE(type) {           // ( addr -- )
 
+/*
+  PRIMITIVE(type) {           // ( addr -- )
 	#ifdef HOST_TEST
 			fputs((const char*)&memory[T], stdout);
     	fflush(stdout); 				// Ensure output flushes immediately
 
 			T = pop();
 	#endif
-
   }
+*/
 
   PRIMITIVE(qkey) {           // ( -- char) Doesn't wait
 
