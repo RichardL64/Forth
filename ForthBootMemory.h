@@ -14,6 +14,8 @@
 #define lit8(value)    	_align(); opc(lit8); _byte(value);
 #define lit16(value)   	opc(lit16); _align(); _word(value);
 #define lits(str)				_string(str);
+#define in(port)				_align(); opc(in); _byte(port);
+#define out(port)				_align(); opc(out); _byte(port);
 
 
 //	Allocate memory assembler style
@@ -78,8 +80,8 @@
 #define _OP_1(a)          		_byte(opc_##a);
 #define _OP_2(a, b)       		_OP_1(a); _OP_1(b);
 #define _OP_3(a, b, c)    		_OP_2(a, b); _OP_1(c);
-#define _OP_4(a, b, c, d) 		_OP_2(a, b); _OP_2(c, d);
-#define _OP_5(a, b, c, d, e)	_OP_2(a, b); _OP_2(c, d); _OP_1(e);
+#define _OP_4(a, b, c, d) 		_OP_3(a, b, c); _OP_1(d);
+#define _OP_5(a, b, c, d, e)	_OP_4(a, b, c, d); _OP_1(e);
 
 #define _GET_OP_MACRO(_1, _2, _3, _4, _5, NAME, ...) NAME
 #define opc(...) _GET_OP_MACRO(__VA_ARGS__, _OP_5, _OP_4, _OP_3, _OP_2, _OP_1)(__VA_ARGS__)
@@ -93,7 +95,7 @@
 #define _CALL_4(a, b, c, d) 					_CALL_3(a, b, c); _word(word_##d);
 #define _CALL_5(a, b, c, d, e)				_CALL_4(a, b, c, d); _word(word_##e);;
 #define _CALL_6(a, b, c, d, e, f)			_CALL_5(a, b, c, d, e); _word(word_##f);;
-#define _CALL_7(a, b, c, d, e, f, g)	_CALL_6(a, b, c, d, e, f); _word(word_##g);;
+#define _CALL_7(a, b, c, d, e, f, g)	_CALL_6(a, b, c, d, e, f); _word(word_##g);
 
 #define _GET_WORD_MACRO(_1, _2, _3, _4, _5, _6, _7, NAME, ...) NAME
 #define call(...) _GET_WORD_MACRO(__VA_ARGS__, _CALL_7, _CALL_6, _CALL_5, _CALL_4, _CALL_3, _CALL_2, _CALL_1)(__VA_ARGS__)
@@ -110,7 +112,6 @@
     opc(br); \
     _byte((label - cursor) /2);
 
-
 #define WHILE(patch) \
 		_align(); \
     opc(brz); \
@@ -122,7 +123,6 @@
     opc(br); \
     _byte((begin - cursor) /2); \
     rom[while] = (cursor - while) /2;
-
 
 #define IF(patch) \
 		_align(); \
@@ -171,7 +171,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     size_t cursor = 0;
     uint16_t latest = 0;
 
-		auto _align = [&](void) {											// Word align with nops
+		auto _align = [&](void) {										// Word align with nops
 			if (cursor & 1) {
 				rom[cursor++] = opc_nop;
 			}
@@ -192,7 +192,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
       }
       _byte('\0');        											// Null terminator
 
-      _align(); 																// Word align the paramater field
+      _align(); 																// Word align the parameter field
 			return cursor;
     };
 
@@ -237,10 +237,10 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		org(0x0100)
 
 		ds_w(PS_BOT, 16);						// Parameter stack
-		dc_w(PS_TOP, 0);
+		ds_w(PS_TOP, 5);						// Underflow buffer
 
 		ds_w(RS_BOT, 100);					// Return stack
-		dc_w(RS_TOP, 0);
+		ds_w(RS_TOP, 5);
 
 
 		//	Page 3
@@ -270,9 +270,10 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 
     createx(mult, "*"); 			opc(mult, next);
     createx(div, "/"); 				opc(div, next);
-    createx(divmod, "/mod");		opc(divmod, next);
+    createx(divmod, "/mod");	opc(divmod, next);
 
     createx(oneadd, "1+");		lit8(1); opc(add, next);
+    createx(onesub, "1-");		lit8(1); opc(sub, next);
     createx(twoadd, "2+");		lit8(2); opc(add, next);
     createx(twodiv, "2/"); 		lit8(2); opc(div, next);
     createx(twomult, "2*");		lit8(2); opc(mult, next);
@@ -280,6 +281,9 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		create(and);							opc(and, next);
 		create(or);								opc(or, next);
 		create(not);							opc(not, next);
+
+		createx(nequal, "<>");		opc(sub, next);																		// : <> - ;
+		createx(equals, "=");			opc(sub, not, next);															// : = - not ;
 
 		createx(less, "<");				opc(sub); NIF(less1)															// : < - -if 0 exit then -1 ;
 																lit8(0); opc(next);
@@ -307,9 +311,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     create(pick);							opc(pick, next);
     create(over);							lit8(1); opc(pick, next);                         // : over 1 pick ;
     create(nip);							opc(swap, drop, next);														// : nip swap drop ;
-    createcx(twodup, "2dup");																										// : 2dup over over ;
-    	call(over, over);
-    endc;
+
 
     createx(fetch, "@");			opc(astore, fetcha, next);												// : @ a! @a ; ( addr -- n1 )
     createx(store, "!");			opc(astore, storea, next);												// : ! a! !a ; ( addr n1 -- )
@@ -324,24 +326,52 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     createx(hdot, "h.");    	opc(hdot, next);
     createx(uhdot, "uh.");    opc(uhdot, next);
 
-    create(emit);         		opc(emit, next);
+  	create(emit);							out(IO_TERMINAL); opc(next);
+    create(key);           		in(IO_TERMINAL); opc(next);
 
-		create(type);																																// : type ( addr -- )
-			opc(astore);																															//		a!									( -- )
-			BEGIN(type1)																															//		begin
-				opc(fetchaadd); lit16(0xff); opc(and, dup);															//			@a+ 0xff and dup	( -- char char )
-			WHILE(type2)																															//		while								( -- char )
-				opc(emit);																															//			emit 							( -- )
-			REPEAT(type1, type2)																											//		repeat
-			opc(drop, next);																													//		drop, next					( -- )
+		//	Type
+		//
+		create(type);																														// : type 								( addr -- )
+			opc(astore);																													//		a!									( -- )
+			BEGIN(type1)																													//		begin
+				opc(fetcha, aadd); lit16(0xff); opc(and, dup);											//			@a a+ 0xff and dup	( -- char char )
+			WHILE(type2);																													//		while								( -- char )
+				out(IO_TERMINAL);																										//			emit 							( -- )
+			REPEAT(type1, type2);																									//		repeat
+			opc(drop, next);																											//		drop ;							( -- )
+
+		//	Accept
+		//
+		create(accept2);																												// : accept 							( addr n1 -- n2)
+			opc(swap, astore);																										//		a!									( -- n1)
+			BEGIN(accept1);																												//		begin
+				opc(dup);																														//			dup								( -- n1 n1 )
+			WHILE(accept2);																												//		while
+				in(IO_TERMINAL);																										//			key								( -- n1 char )
+
+				opc(dup); lit8('\n'); opc(sub);																			//			dup '\n' =				( -- n1 char bool)
+				IF(accept3);																												//			if
+					lit8(0); opc(storea, drop, drop, next);														//				0 !a next				( -- ) -->
+				ENDIF(accept3);																											//			endif
+
+				opc(dup, storea, aadd);																							//			dup !a a+					( -- n1 char )
+				out(IO_TERMINAL);																										//			emit							( -- n1 )
+				lit8(1); opc(sub);																									//			1 -								( -- n1-1 )
+			REPEAT(accept1, accept2);																							//		repeat
+			lit8(0); opc(storea);																									//		0 !a			? not required storing high byte 0
+			opc(drop, next);																											//		drop ;
+
 
     createx(qkey, "?key");		opc(qkey, next);
-    create(key);           		opc(key, next);
     create(accept);       		opc(accept, next);
 
 		createx(dots, ".s");			opc(dots, next);
 
-    create(dp); 							opc(lit16, next); _word(DP);											// Constant runtime for sys vars
+		create(cr);								lit8('\n'); out(IO_TERMINAL); opc(exit);			// : cr '\n' emit ;
+		create(space);						lit8(32); out(IO_TERMINAL); opc(exit);				//: space 32 emit ;
+
+
+    create(dp); 							opc(lit16, next); _word(DP);									// Constant runtime for sys vars
     create(limit); 						opc(lit16, next); _word(MEMTOP);
     create(current); 					opc(lit16, next); _word(CURRENT);
     create(context); 					opc(lit16, next); _word(CONTEXT);
@@ -350,55 +380,57 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     createx(in, ">in");				opc(lit16, next); _word(IN);
 		create(state);						opc(lit16, next); _word(STATE);
 
-    create(number);						opc(number, next);															// : number ( addr - n1 flag )
+    create(number);						opc(number, next);														// : number ( addr - n1 flag )
 
 
-		createx(exit0, "\0"); 		opc(exit);	immediate;													// End of TIB, shouldn't need next
-		create(execute); 					opc(execute);																		// shouldn't need next
+		createx(exit0, "\0"); 		opc(exit);	immediate;												// End of TIB, shouldn't need next
+		create(execute); 					opc(execute);																	// shouldn't need next
 
 		create(exit);							opc(exit);
 
-		createx(qexit, "?exit");																									// Exit if true != 0
+		createx(qexit, "?exit");																								// Exit if true != 0
 			IF(qexit1);
 				opc(exit);
 			ENDIF(qexit1);
 			opc(next);
 
-		createx(zqexit, "0?exit");																								// Exit if false = 0
+		createx(zqexit, "0?exit");																							// Exit if false = 0
 			ZIF(zqexit1);
 				opc(exit);
 			ENDIF(zqexit1);
 			opc(next);
 
-		create(cr);								lit8('\n'); opc(emit, next);										// : cr '\n' emit ;
-		create(space);						lit8(32); opc(emit, next);											//: space 32 emit ;
 
 
 
 		//	Colon code words - end with endc macro
 		//
 
-		createc(depth);																														// : depth s0 sp@ - 2/ 1 - ;
+    createcx(twodup, "2dup");																								// : 2dup over over ;
+    	call(over, over);
+    endc;
+
+		createc(depth);																													// : depth s0 sp@ - 2/ 1 - ;
 			call(szero, spfetch, sub, twodiv); lit8(1); call(sub);
 		endc;
 
-    createc(definitions); 																										// : definitions context @ current ! ;
+    createc(definitions); 																									// : definitions context @ current ! ;
     	call(context, fetch, current, store);
     endc;
 
-    createc(here);																														// : here dp @ ;
+    createc(here);																													// : here dp @ ;
     	call(dp, fetch);
 		endc;
 
-		createc(align);																														// : align 1+ 0xfe and ;
+		createc(align);																													// : align 1+ 0xfe and ;
 			call(oneadd); lit8(0xfe); call(and);
 		endc;
 
-    createc(allot);																											 			// : allot align dp +! ;
+    createc(allot);																											 		// : allot align dp +! ;
 			call(align, dp, plusstore);
 		endc;
 
-    createcx(comma, ",");     																								// : , here ! 2 allot ;
+    createcx(comma, ",");     																							// : , here ! 2 allot ;
     	call(here, store); lit8(2); call(allot);
     endc;
 
@@ -422,7 +454,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 			WHILE(find2);																													//		while
 				call(twodup, name);																									//			2dup name>					( -- str link str str2 )
 				opc(scmp) ZIF(find3);																								//			scmp 0if						( -- str link )
-					call(nip, body); opc(exit);																				//				nip body> exit		( -- xt )
+					call(nip, body, exit);																						//				nip body> exit		( -- xt ) 	--->
 				ENDIF(find3)																												//			endif
 				call(fetch);																												//  		@										( -- str link )
 			REPEAT(find1, find2);																									//		repeat
@@ -432,7 +464,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 
 		//	Word
 		//
-		dc_s(WHITE_SPACE,	" \t\r\n\0");																					// To ignore
+		dc_s(WHITE_SPACE,	" \t\r\n\0");																					// chars to ignore
 
 		createc(word);																													// : word ( -- )
 			call(tib, in, fetch, add);																						// 		( -- next )
@@ -444,10 +476,10 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		endc;																																		//	;
 
 
-		//	Interpret error routine - display word? & reset the stacks
+		//	Interpret error routine - display error ? & reset the stacks
 		//
-		createc(abort);																													// : abort
-			call(here, type);																											//		here type
+		createc(abort);																													// : abort ( string -- )
+			call(type);																														//		type
 			lits("?\n"); call(type);
 			call(szero, spstore); 																								//		reset the stack pointers
 			call(rzero, rpstore);																									//
@@ -459,10 +491,12 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		createcx(qstack, "?stack");																							//	: ?stack
 			call(szero, spfetch, sub);																						//		s0 sp@ -
 			lit8(2); call(less); IF(qstack1);																			//		2 < if
-				lits("Stack empty "); call(type, abort);														// 			-->
+				call(szero, spstore);																								//			s0 sp!		( make sure stack is valid)
+				lits("Stack empty"); call(abort);																		// 			-->
 			ENDIF(qstack1);																												//		endif
 
 		endc;
+
 
 		//	Main interpret loop
 		//	Intrpret each word in the buffer until the null end of string executes exit
@@ -481,7 +515,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 				ELSE(interpret2, interpret3);																				//			else
 					call(drop, here, number);																					//				drop here number	( -- n1 flag)
 					ZIF(interpret4);																									// 				0if
-			  		call(abort);																										//					abort
+			  		call(here, abort);																							//					abort
 			  	ENDIF(interpret4)																									//				endif
 
 			  ENDIF(interpret3);																									//			endif
@@ -495,6 +529,7 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     	lit8(0); call(in, store);												//		0 >in !
     	call(tib); lit8(80); call(accept, drop);      	// 		tib 80 accept drop ;
 		endc;																							// ;
+
 
 		//	Main quit loop
 		//	Input/interpret repeat
@@ -515,19 +550,19 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		createc(x);
 			lit8('\n');
 			lit8('X');
-			opc(emit, emit);
+			call(emit, emit);
 		endc;
 
 		createc(t);																		// True
-			lit8('t'); opc(emit);
+			lit8('t'); call(emit);
 			lit8(-1);
-			lit8('T'); opc(emit);
+			lit8('T'); call(emit);
  		endc;
 
 		createc(f);																		// False
-			lit8('f'); opc(emit)
+			lit8('f'); call(emit)
 			lit8(0);
-			lit8('F'); opc(emit);
+			lit8('F'); call(emit);
 		endc;
 
 
@@ -541,8 +576,8 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		createc(t2);
 			lits("t2\n"); call(type);
 
-			call(query, tib, find, cr, dots);
-			lit8(0); call(tib, store);
+			call(here); lit8(5); call(accept2, cr);
+			call(here, type, cr);
 		endc;
 
 		createc(t3);

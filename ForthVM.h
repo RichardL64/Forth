@@ -48,6 +48,7 @@
 
 #pragma once
 #include <cstring>
+#include "ForthIODispatcher.h"
 
 
 //  Primitive setup
@@ -421,15 +422,13 @@ public:
     T = fetch(A);
   }
 
-  PRIMITIVE(fetchaadd) {        // ( -- n1 )				// fetch value at address A, inc A
-    push(T);
-    T = fetch(A);
-    A++;
-  }
-
   PRIMITIVE(storea) {           // ( n1 -- )				// store value at address A
     store(A, T);
     T = pop();
+  }
+
+  PRIMITIVE(aadd) {        			// ( -- n1 )				// increment A
+    A++;
   }
 
 	PRIMITIVE(move) {							// ( src dest bytes -- )			// Move memory
@@ -468,8 +467,8 @@ public:
     const char* p = (const char*)&memory[addr];
 
     if (*p == '\0') {																	// Empty string
-        T = 0; 																		// Flag: Failure
-        push(0);																	// Value: 0
+        T = 0; 																				// Flag: Failure
+        push(0);																			// Value: 0
         return;																				// -->
     }
 
@@ -496,8 +495,8 @@ public:
     long val = std::strtol(p, &endptr, base);					// Interpret the number
     bool success = (endptr != p);											// parsed at least one char
 
-    T = success ? -1 : 0;         								// Flag on TOS
-    push(success ? (uint16_t)val : 0); 						// Value on NOS
+    T = success ? -1 : 0;         										// Flag on TOS
+    push(success ? (uint16_t)val : 0); 								// Value on NOS
   }
 
 
@@ -600,41 +599,10 @@ public:
 	}
 
 
-  PRIMITIVE(emit) {           // ( char -- )
-
-	#ifdef HOST_TEST
-			char c = (char)(T & 0xFF);
-			putchar(c);
-    	fflush(stdout); 				// Ensure output flushes immediately
-    	T = pop();
-  #endif
-
-  }
-
-
-/*
-  PRIMITIVE(type) {           // ( addr -- )
-	#ifdef HOST_TEST
-			fputs((const char*)&memory[T], stdout);
-    	fflush(stdout); 				// Ensure output flushes immediately
-
-			T = pop();
-	#endif
-  }
-*/
-
   PRIMITIVE(qkey) {           // ( -- char) Doesn't wait
 
   }
 
-  PRIMITIVE(key) {            // ( -- char )
-
-	#ifdef HOST_TEST
-			push(T);
-			T = getchar();
-  #endif
-
-  }
 
   PRIMITIVE(accept) {         // (addr n1 -- n2) Returns chars input
 
@@ -649,7 +617,7 @@ public:
   	  	return;																							// -->
   	  }
 
-      size_t len = std::strlen(dest);											// strPC any trailing newline
+      size_t len = std::strlen(dest);											// strip any trailing newline
       if (len > 0 && dest[len - 1] == '\n') {
       	dest[len - 1] = '\0';
         len--;
@@ -659,38 +627,42 @@ public:
         len--;
       }
 
-      T = (uint16_t)len;															// leave final string length in T
+      T = (uint16_t)len;																	// leave final string length in T
 	#endif
 
   }
 
+
 	//
-	//	File I/O
+	//	I/O
+	//	8 bit port number, TOS parameter
 	//
 
-	PRIMITIVE(fop) {									// ( path flags -- id bool )	Open
+	PRIMITIVE(in) {																					// ( -- n1 )
+		uint8_t port = I.parm;
+    I.op2 = opc_nop;                        							// dont execute opcode 2
+
+		push(T);
+    T = IODispatcher.handleIn(port, memory);
 	};
 
-	PRIMITIVE(fcl) {									// ( id -- bool )							Close
-	};
+	PRIMITIVE(out) {																				// ( n1 -- )
+		uint8_t port = I.parm;
+    I.op2 = opc_nop;                        							// dont execute opcode 2
 
-	PRIMITIVE(fr)	{										// ( id -- addr bool )				Read
-	};
-
-	PRIMITIVE(fw)	{										// ( id addr -- bool )				Write
-	};
-
-	PRIMITIVE(fcmd)	{									// ( cmd -- bool )						Command
+		IODispatcher.handleOut(port, T, memory);
+		T = pop();
 	};
 
 
 	//
   //  Bootstrap memory image
+  //	here so it has visibility of the primitive definitions
   //
   #include "ForthBootMemory.h"
 
 
-	PRIMITIVE(dots) {																				// Dump the stack
+	PRIMITIVE(dots) {																				// .s Dump the stack
     const uint16_t PS_TOP = 0x0100 + 32;
 
     if (SP == PS_TOP) {

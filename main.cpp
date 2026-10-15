@@ -71,9 +71,9 @@ std::string get_opcode_name(uint8_t op) {
 
         "a@  ",
         "a!  ",
-        "@a  ",
-        "@a+ ",
-        "!a  ",
+        "@a  ",		//		@a c@    a+ a-
+        "!a  ",		//		!ca
+        "a+  ",
         "move",
         "scmp",		//			String compare
 
@@ -86,16 +86,11 @@ std::string get_opcode_name(uint8_t op) {
         "h.  ",		//			Hex						ff
         "uh. ",		//			Unsigned hex	ffff
 
-        "emit",
         "?key",
-        "key ",
         "acpt",		//			Accept
 
-        "fop ",		//			File open
-        "fcl ",		//				close
-        "fr  ",		//				read
-        "fw  ",		//				write
-        "fcmd"		//				command
+				"in  ",		//			I/O
+				"out "
     };
 
     size_t index = (op - 1) / 2;
@@ -111,7 +106,6 @@ std::string get_opcode_name(uint8_t op) {
 //
 //	Disassembler
 //
-
 void disassemble(const uint8_t* memory, uint16_t start_addr, int word_count) {
     uint16_t addr = (start_addr +1) & ~1;
     int words_processed = 0;
@@ -124,9 +118,12 @@ void disassemble(const uint8_t* memory, uint16_t start_addr, int word_count) {
         uint16_t word = low | (high << 8);
 
         // Print address and raw 16-bit word hex
+        //
         std::cout << std::hex << std::setw(4) << std::setfill('0') << addr << ": "
                   << std::setw(4) << std::setfill('0') << word << "  ";
 
+				// Opcode specific formatting
+				//
         if ((word & 1) == 0) {					            // Bit 0 = 0: Call
             std::cout << "call  " << std::hex << std::setw(4) << std::setfill('0') << word << "\n";
             addr += 2;
@@ -136,21 +133,22 @@ void disassemble(const uint8_t* memory, uint16_t start_addr, int word_count) {
             uint8_t op1 = low;
             uint8_t op2 = high;
 
-            std::cout << get_opcode_name(op1) << " ";
+            std::cout << get_opcode_name(op1) << " ";																					// Op1
 
-            if (op1 == ForthVMClass::opc_lit8 ) {																							// lit 8 bit
+            if (op1 == ForthVMClass::opc_lit8
+            	|| op1 == ForthVMClass::opc_in || op1 == ForthVMClass::opc_out) {								// Lit 8 bit
             	std::cout << "   " << std::hex << std::setw(2) << std::setfill('0') << high;
 
-						} else if (op1 == ForthVMClass::opc_lits ) {																			// lit string
+						} else if (op1 == ForthVMClass::opc_lits ) {																			// Lit string
 							std::cout << " \"" << &memory[addr] << "\"";
 							addr += (int8_t)op2 *2;
 
             } else if (op1 == ForthVMClass::opc_br
             					|| op1 == ForthVMClass::opc_brz || op1 == ForthVMClass::opc_brnz
-            					||	op1 == ForthVMClass::opc_brn || op1 == ForthVMClass::opc_brp) {
+            					||	op1 == ForthVMClass::opc_brn || op1 == ForthVMClass::opc_brp) {			// Branches
             	std::cout << " " << std::hex << std::setw(4) << std::setfill('0') << addr +2 + ((int8_t)op2 *2);
 
-            } else if (op2 != ForthVMClass::opc_nop) {
+            } else if (op2 != ForthVMClass::opc_nop) {																				// Suppress nop
             	std::cout << "\n            " << get_opcode_name(op2);
 
 						}
@@ -179,6 +177,7 @@ void disassemble(const uint8_t* memory, uint16_t start_addr, int word_count) {
 }
 
 
+//
 //	Dump memory
 //
 void dump_memory(const uint8_t* memory, uint16_t start_addr, uint16_t length) {
@@ -231,7 +230,7 @@ int main() {
     dump_memory(ForthVM.memory, 0x0000, 0x0014);
     dump_memory(ForthVM.memory, 0x0800, 0x0500);
 
-		disassemble(ForthVM.memory, 0x0ab8, 50);
+		disassemble(ForthVM.memory, 0x09fe, 50);
 
 		int i = 1;
 		while(i<10) {
