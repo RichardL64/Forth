@@ -26,7 +26,7 @@ class HostFileSystemClass {
 
 private:
 
-	std::array<std::unique_ptr<std::fstream>, 10> files;	// Fixed size open file table
+	std::array<std::unique_ptr<std::fstream>, 10> files;		// Fixed size open file table, slot 0 not used
 
 	uint8_t		cmdReg;
 	uint8_t		modeReg;
@@ -36,14 +36,17 @@ private:
 	char* 		bufferReg;
 	uint16_t 	sizeReg;
 
+	uint16_t	statusReg;
 
 public:
 
-	//	Setup registers
+
+	//	Internal register access
 	//
 	void setCmd(uint16_t cmd) {
 		cmdReg = cmd & 0x0f;
 		modeReg = cmd & 0xf0;
+		run();																		// Setting the command runs it
 	}
 
 	void setID(uint16_t id) {
@@ -62,28 +65,42 @@ public:
 		sizeReg = size;
 	}
 
+	uint16_t getID() {
+		return idReg;
+	}
+
+	uint16_t getStatus() {
+		return statusReg;
+	}
+
 
 	//	Run the command
 	//
-	uint16_t run() {
+	void run() {
 		switch(cmdReg) {
 		case fsOpen:
-			return open(nameReg, modeReg);
+			idReg = open(nameReg, modeReg);
+			statusReg = idReg;
+			break;
 
 		case fsClose:
-			return close(idReg);
+			statusReg = close(idReg);
+			break;
 
 		case fsRead:
-			return read(idReg, bufferReg, sizeReg);
+			statusReg = read(idReg, bufferReg, sizeReg);
+			break;
 
 		case fsWrite:
-			return write(idReg, bufferReg, sizeReg);
+			statusReg = write(idReg, bufferReg, sizeReg);
+			break;
 
 		case fsSeek:
-			return seek(idReg, sizeReg, 0);
+			statusReg = seek(idReg, sizeReg, 0);
+			break;
 
 		default:
-			return -1;
+			break;
 		}
 	}
 
@@ -94,14 +111,14 @@ private:
 	//	Open
 	//
 	uint16_t open(char* name, uint8_t mode) {
-  	std::ios::openmode ios_mode = std::ios::in;				// 1 = read
-    if (mode & 2) ios_mode |= std::ios::out;					// 2 = write
-    if (mode & 4) ios_mode |= std::ios::app;					// 4 = append
+  	std::ios::openmode ios_mode = std::ios::in;				// interpret file mode
+    if (mode & fsWriteMode) ios_mode |= std::ios::out;
+    if (mode & fsAppendMode) ios_mode |= std::ios::app;
 
     auto fs = std::make_unique<std::fstream>(name, ios_mode);
-    if (!fs->is_open()) return -1;										// -->
+    if (!fs->is_open()) return 0;											// -->
 
-    for (size_t i = 0; i < files.size(); ++i) {				// Find an existing empty slot
+    for (size_t i = 1; i < files.size(); ++i) {				// Find an existing empty slot, start at 1
     	if (!files[i] || !files[i]->is_open()) {
     		files[i] = std::move(fs);
       	return i;																			// -->
@@ -109,19 +126,21 @@ private:
     }
 
 		fs->close();																			// Fall through, no slot - close it
-    return -1;
+    return 0;
   }
 
 
 	//	Close
 	//
   uint16_t close(uint16_t fid) {
-  	if (fid >= 0 && fid < static_cast<int>(files.size()) && files[fid]) {
-    	files[fid]->close();
-      files[fid].reset();
+  	if (fid < 0 || fid >= files.size() || !files[fid] || !files[fid]->is_open()) {
+    	return 0;																				// -->
     }
 
-		return 0;
+    files[fid]->close();
+    files[fid].reset();
+
+		return fid;
   }
 
 
@@ -129,11 +148,17 @@ private:
 	//
   int read(uint16_t fid, char* buffer, uint16_t size) {
   	if (fid < 0 || fid >= files.size() || !files[fid] || !files[fid]->is_open()) {
-    	return -1;																			// -->
+    	return 0;																				// -->
     }
 
     files[fid]->read(buffer, size);
-    return (uint16_t)(files[fid]->gcount()); 					//	bytes read
+
+		int bytesRead = files[fid]->gcount();
+		if (bytesRead >= 0 && bytesRead < size) {					// Trailing null if the buffer isn't full
+    	buffer[bytesRead] = '\0';
+		}
+
+    return bytesRead;
   }
 
 
@@ -141,13 +166,15 @@ private:
 	//
 	int write(uint16_t fid, const char* buffer, uint16_t size) {
     if (fid >= files.size() || !files[fid] || !files[fid]->is_open()) {
-        return -1;
+        return 0;																			// -->
     }
 
+		// std::cout << "fs write 2 - size: " << (int)size << " buffer ptr: " << (void*)buffer << "\n";
     files[fid]->write(buffer, size);
+    files[fid]->flush();
 
     if (!*files[fid]) {			    											// Check if the write operation failed
-        return -1; 																		// -->
+        return 0; 																		// -->
     }
     return static_cast<int>(size); 										//	bytes written on success
 	}
@@ -157,7 +184,7 @@ private:
 	//
 	int seek(uint16_t fid, int32_t offset, int whence) {
     if (fid >= files.size() || !files[fid] || !files[fid]->is_open()) {
-        return -1;
+        return 0;
     }
 
     std::ios::seekdir dir;
@@ -165,7 +192,7 @@ private:
         case 0: dir = std::ios::beg; break; // SEEK_SET
         case 1: dir = std::ios::cur; break; // SEEK_CUR
         case 2: dir = std::ios::end; break; // SEEK_END
-        default: return -1;														// -->
+        default: return 0;														// -->
     }
 
     files[fid]->clear();															// Clear EOF flags that can sometimes block a successful seek
@@ -173,7 +200,7 @@ private:
     files[fid]->seekp(offset, dir);										// Write pointer
 
     if (!*files[fid]) {
-        return -1; 																		// Seek failed (e.g., out of bounds)
+        return 0; 																		// Seek failed (e.g., out of bounds)
     }
     return static_cast<int>(files[fid]->tellg());			//	Return current absolute position, or 0 for success
 

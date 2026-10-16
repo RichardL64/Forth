@@ -71,9 +71,12 @@ std::string get_opcode_name(uint8_t op) {
 
         "a@  ",
         "a!  ",
-        "@a  ",		//		@a c@    a+ a-
-        "!a  ",		//		!ca
+        "@a  ",
+        "!a  ",
+        "c@a ",
+        "c!a ",
         "a+  ",
+        "a-  ",
         "move",
         "scmp",		//			String compare
 
@@ -140,7 +143,7 @@ void disassemble(const uint8_t* memory, uint16_t start_addr, int word_count) {
             	std::cout << "   " << std::hex << std::setw(2) << std::setfill('0') << high;
 
 						} else if (op1 == ForthVMClass::opc_lits ) {																			// Lit string
-							std::cout << " \"" << &memory[addr] << "\"";
+							std::cout << " \"" << &memory[addr +2] << "\"";
 							addr += (int8_t)op2 *2;
 
             } else if (op1 == ForthVMClass::opc_br
@@ -228,9 +231,9 @@ int main() {
     ForthVM.init();
 
     dump_memory(ForthVM.memory, 0x0000, 0x0014);
-    dump_memory(ForthVM.memory, 0x0800, 0x0500);
+    dump_memory(ForthVM.memory, 0x0800, 0x0600);
 
-		disassemble(ForthVM.memory, 0x09fe, 50);
+		disassemble(ForthVM.memory, 0x0d24, 50);
 
 		int i = 1;
 		while(i<10) {

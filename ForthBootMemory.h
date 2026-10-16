@@ -316,8 +316,8 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
     createx(fetch, "@");			opc(astore, fetcha, next);												// : @ a! @a ; ( addr -- n1 )
     createx(store, "!");			opc(astore, storea, next);												// : ! a! !a ; ( addr n1 -- )
     createx(plusstore, "+!");	opc(astore, fetcha, add, storea, next);						// : +! a! @a + !a ;
-    createx(cfetch, "c@");		opc(astore, fetcha); lit8(0xff); opc(and, next);	// : c@ a! @a 0xff and ;
-    createx(cstore, "c!");		opc(astore, fetcha, and, storea, next);     			// : c! a! @a and !a ;
+    createx(cfetch, "c@");		opc(astore, cfetcha, next);												// : c@ a! c@a ;
+    createx(cstore, "c!");		opc(astore, cstorea, next);     									// : c! a! c!a ;
 		create(move);							opc(move, next);
 		create(scmp);							opc(scmp, next);
 
@@ -329,12 +329,13 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
   	create(emit);							out(IO_TERMINAL); opc(next);
     create(key);           		in(IO_TERMINAL); opc(next);
 
+
 		//	Type
 		//
 		create(type);																														// : type 								( addr -- )
 			opc(astore);																													//		a!									( -- )
 			BEGIN(type1)																													//		begin
-				opc(fetcha, aadd); lit16(0xff); opc(and, dup);											//			@a a+ 0xff and dup	( -- char char )
+				opc(cfetcha, aadd, dup);																						//			@a a+ dup					( -- char char )
 			WHILE(type2);																													//		while								( -- char )
 				out(IO_TERMINAL);																										//			emit 							( -- )
 			REPEAT(type1, type2);																									//		repeat
@@ -351,14 +352,14 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 
 				opc(dup); lit8('\n'); opc(sub);																			//			dup '\n' =				( -- n1 char bool)
 				IF(accept3);																												//			if
-					lit8(0); opc(storea, drop, drop, next);														//				0 !a next				( -- ) -->
+					lit8(0); opc(cstorea, drop, drop, next);													//				0 c!a next			( -- ) -->
 				ENDIF(accept3);																											//			endif
 
-				opc(dup, storea, aadd);																							//			dup !a a+					( -- n1 char )
+				opc(dup, cstorea, aadd);																						//			dup c!a a+				( -- n1 char )
 				out(IO_TERMINAL);																										//			emit							( -- n1 )
 				lit8(1); opc(sub);																									//			1 -								( -- n1-1 )
 			REPEAT(accept1, accept2);																							//		repeat
-			lit8(0); opc(storea);																									//		0 !a			? not required storing high byte 0
+			lit8(0); opc(cstorea);																								//		0 c!a								Trailing 0
 			opc(drop, next);																											//		drop ;
 
 
@@ -367,8 +368,8 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 
 		createx(dots, ".s");			opc(dots, next);
 
-		create(cr);								lit8('\n'); out(IO_TERMINAL); opc(exit);			// : cr '\n' emit ;
-		create(space);						lit8(32); out(IO_TERMINAL); opc(exit);				//: space 32 emit ;
+		create(cr);								lit8('\n'); out(IO_TERMINAL); opc(next);			// : cr '\n' emit ;
+		create(space);						lit8(32); out(IO_TERMINAL); opc(next);				//: space 32 emit ;
 
 
     create(dp); 							opc(lit16, next); _word(DP);									// Constant runtime for sys vars
@@ -462,6 +463,12 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		endc;																																		//	;
 
 
+		//	String handling
+		//	scanf		scan for one of the chars in a string
+		//	scanu		scan until one of the chars in a string
+		//	scanw		scan while one of the cars in a string
+		//
+
 		//	Word
 		//
 		dc_s(WHITE_SPACE,	" \t\r\n\0");																					// chars to ignore
@@ -542,6 +549,48 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 		set_w(ABORT, word_quit);													// Patch abort forward call to quit
 
 
+		//	File handling
+		//
+		createc(open);																		//	: open 								( name mode -- id )
+			lit8(fsOpen); call(or, swap);										//		fsOpen or swap			( -- cmd name)
+			out(IO_FILE_NAME);															//		out									( -- cmd )
+			out(IO_FILE_CMD);																//		out									( -- )
+			in(IO_FILE_CMD); call(dup); ZIF(open1);					//		in dup 0if
+				lits("open error"); call(abort);							// 			"" abort 			-->
+			ENDIF(open1);																		//		endif
+		endc;																							//	;
+
+		createc(close);																		//	: close								( id -- )
+			out(IO_FILE_ID);																//		out									( -- )
+			lit8(fsClose); out(IO_FILE_CMD);								//		fsClose out					( -- )
+			in(IO_FILE_CMD); ZIF(close1);										//		in 0if
+				lits("close error"); call(abort);							// 			"" abort			-->
+			ENDIF(close1);																	//		endif
+		endc;																							//	;
+
+		createc(read);																		//	: read								( id buffer size -- bytes )
+			out(IO_FILE_SIZE);															//		out
+			out(IO_FILE_BUFFER);														//		out
+			out(IO_FILE_ID);																//		out
+			lit8(fsRead); out(IO_FILE_CMD);									//		fsRead out
+			in(IO_FILE_CMD);																//		in
+			call(dup); ZIF(read1);													//		dup if
+				lits("read error"); call(abort);							//			"" abort			-->
+			ENDIF(read1);																		//		endif
+		endc;
+
+		createc(write);																		//	: write								( id buffer bytes -- )
+			out(IO_FILE_SIZE);															//		out
+			out(IO_FILE_BUFFER);														//		out
+			out(IO_FILE_ID);																//		out
+			lit8(fsWrite); out(IO_FILE_CMD);								//		fsWrite out
+			in(IO_FILE_CMD);																//		in
+			ZIF(write1);																		//		if
+				lits("write error"); call(abort);							//			"" abort			-->
+			ENDIF(write1);																	//		endif
+		endc;
+
+
 
 		//
 		//	Test harnesses
@@ -568,17 +617,32 @@ constexpr std::array<uint8_t, MEMORY_SIZE> generate_core_image() {
 
     createc(t1);
 			lits("t1\n"); call(type);
-			lits("testa"); call(dup); opc(scmp); call(dot, cr);
-			lits("testa"); lits("testc"); opc(scmp); call(dot, cr);
-			lits(":"); lits(":"); opc(scmp); call(dot, cr);
+
+			lits("/Users/richard/Documents/Arduino/ESP32 C3 Baguette/ForthVM/test.txt");
+			lit8(fsAppendMode); call(open);							//	( -- fid )
+			lits("opened\n"); call(type);
+/*
+			call(dup, here); lit8(80); call(read);
+			lits("read ");
+			call(dot, here, type, cr);
+*/
+			call(dup); lits("From forth VM\n"); lit8(14); call(write);
+			lits("writen\n"); call(type);
+
+			call(close);																//	( fid --  )
+			lits("closed\n"); call(type);
+
+			lits("t1 done\n"); call(type);
 		endc;
+
 
 		createc(t2);
 			lits("t2\n"); call(type);
 
-			call(here); lit8(5); call(accept2, cr);
-			call(here, type, cr);
+			lit8(80); call(here, add); lit8(5); call(accept2, cr);
+			lit8(80); call(here, add, type, cr);
 		endc;
+
 
 		createc(t3);
 			lits("t3\n"); call(type);

@@ -75,7 +75,7 @@
 //	The VM
 //
 class ForthVMClass {
-
+	IODispatcherClass ioDispatcher;
 
 public:
 
@@ -83,6 +83,13 @@ public:
   //  Memory
   //
   uint8_t memory[MEMORY_SIZE];
+
+
+	//	Constructor
+	//
+	ForthVMClass()
+	: ioDispatcher(memory, memory + 0xffff ){
+	}
 
 
 private:
@@ -145,6 +152,7 @@ public:
   //  Called once at startup cold boot the system
   //
   void init() {
+
       for (size_t i = 0; i < MEMORY_SIZE; i++) {           // Clear memory
           memory[i] = 0;
       }
@@ -161,7 +169,7 @@ public:
 
 
 	//
-  //  VM execution loop
+  //  VM execution loop, inner interpreter
   //  Called externally to execute the next VM instruction
   //
   void tick() {
@@ -427,8 +435,22 @@ public:
     T = pop();
   }
 
+PRIMITIVE(cfetcha) {           // ( -- n1 )					// fetch byte at address A
+    push(T);
+    T = *(uint8_t*)&memory[A];
+  }
+
+  PRIMITIVE(cstorea) {          // ( n1 -- )				// store byte at address A
+    *(uint8_t*)&memory[A] = T;
+    T = pop();
+  }
+
   PRIMITIVE(aadd) {        			// ( -- n1 )				// increment A
     A++;
+  }
+
+  PRIMITIVE(asub) {        			// ( -- n1 )				// decrement A
+    A--;
   }
 
 	PRIMITIVE(move) {							// ( src dest bytes -- )			// Move memory
@@ -643,14 +665,14 @@ public:
     I.op2 = opc_nop;                        							// dont execute opcode 2
 
 		push(T);
-    T = IODispatcher.handleIn(port, memory);
+    T = ioDispatcher.handleIn(port);
 	};
 
 	PRIMITIVE(out) {																				// ( n1 -- )
 		uint8_t port = I.parm;
     I.op2 = opc_nop;                        							// dont execute opcode 2
 
-		IODispatcher.handleOut(port, T, memory);
+		ioDispatcher.handleOut(port, T);
 		T = pop();
 	};
 
